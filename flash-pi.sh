@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Tested against: Raspberry Pi OS Lite (Legacy, 64-bit) — Bookworm
 set -euo pipefail
 
 # Prompt for image path
@@ -72,36 +73,24 @@ while [[ ! -d /Volumes/bootfs ]]; do
 done
 
 # Hash password
-PI_HASH=$(echo "$PASSWORD" | openssl passwd -5 -stdin)
+PI_HASH=$(echo "$PASSWORD" | openssl passwd -6 -stdin)
 
-# Build user-data
-echo "Writing cloud-init config..."
+# Write userconf.txt (creates the pi user with hashed password)
+echo "Writing userconf.txt..."
+echo "pi:$PI_HASH" > /Volumes/bootfs/userconf.txt
 
-{
-  cat << 'HEADER'
-#cloud-config
+# Enable SSH
+touch /Volumes/bootfs/ssh
 
-hostname: raspberrypi
-manage_etc_hosts: true
-ssh_pwauth: true
-
-users:
-  - name: pi
-    groups: users,adm,dialout,audio,netdev,video,plugdev,cdrom,games,input,gpio,spi,i2c,render,sudo
-    shell: /bin/bash
-    lock_passwd: false
-HEADER
-
-  echo "    passwd: $PI_HASH"
-
-  if [[ -n "$PUBKEY" ]]; then
-    echo "    ssh_authorized_keys:"
-    echo "      - $PUBKEY"
-  fi
-} > /Volumes/bootfs/user-data
-
-# meta-data must exist
-touch /Volumes/bootfs/meta-data
+# Write SSH public key to rootfs if available
+if [[ -n "$PUBKEY" ]]; then
+  SSH_DIR="/Volumes/rootfs/home/pi/.ssh"
+  mkdir -p "$SSH_DIR"
+  echo "$PUBKEY" > "$SSH_DIR/authorized_keys"
+  chmod 700 "$SSH_DIR"
+  chmod 600 "$SSH_DIR/authorized_keys"
+  echo "SSH key written to rootfs."
+fi
 
 # Eject
 echo "Ejecting..."

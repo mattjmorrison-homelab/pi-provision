@@ -11,7 +11,7 @@ bash flash-pi.sh
 Prompts for the image path, disk identifier, and a password, then writes the image and configures cloud-init for SSH access on first boot.
 
 **Requirements:**
-- Raspberry Pi OS Lite 64-bit (Trixie, November 2025+)
+- Raspberry Pi OS Lite (Legacy, 64-bit) — Bookworm
 - An SSH public key at `~/.ssh/id_ed25519.pub` or `~/.ssh/id_rsa.pub`
 
 **After flashing:**
