@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Tested against: Raspberry Pi OS Lite (Legacy, 64-bit) — Bookworm
+# Flashes Raspberry Pi OS Lite (64-bit, Trixie) for headless SSH access.
+# Targets Raspberry Pi 5 — do NOT use "Legacy" (Bullseye-based) images, they don't support Pi 5 hardware.
 set -euo pipefail
 
+DOWNLOADS="$HOME/Downloads"
+BOOKWORM="2026-06-18-raspios-bookworm-arm64-lite.img.xz"
+TRIXIE="2026-06-18-raspios-trixie-arm64-lite.img.xz"
+
 # Prompt for image path
-read -rp "Path to image file: " IMAGE_PATH
-IMAGE_PATH="${IMAGE_PATH/#\~/$HOME}"
+# read -rp "Path to image file: " IMAGE_PATH
+# IMAGE_PATH="${IMAGE_PATH/#\~/$HOME}"
+IMAGE_PATH="${DOWNLOADS}/${TRIXIE}"
+
+echo "$IMAGE_PATH"
 
 if [[ ! -f "$IMAGE_PATH" ]]; then
   echo "File not found: $IMAGE_PATH"
@@ -58,6 +66,9 @@ else
   sudo dd if="$IMAGE_PATH" of="/dev/r${DISK}" bs=1m status=progress
 fi
 
+# Re-mount the disk so the boot partition shows up under /Volumes
+diskutil mountDisk "/dev/$DISK"
+
 # Wait for bootfs to mount
 echo ""
 echo "Waiting for bootfs to mount..."
@@ -75,21 +86,32 @@ done
 # Hash password
 PI_HASH=$(echo "$PASSWORD" | openssl passwd -6 -stdin)
 
-# Write userconf.txt (creates the pi user with hashed password)
-echo "Writing userconf.txt..."
-echo "pi:$PI_HASH" > /Volumes/bootfs/userconf.txt
+# Write firstrun.sh — Trixie no longer reliably honors userconf.txt/ssh boot-partition
+# files on their own, so user creation + SSH enablement happen from inside the OS on
+# first boot instead, via the same systemd.run cmdline.txt hook Raspberry Pi Imager's
+# own customization feature uses (confirmed by inspecting its binary).
+echo "Writing firstrun.sh..."
+{
+  echo '#!/bin/bash'
+  echo 'set -e'
+  echo "/usr/lib/userconf-pi/userconf 'pi' '$PI_HASH'"
+  echo 'systemctl enable ssh'
+  if [[ -n "$PUBKEY" ]]; then
+    echo 'install -o pi -g pi -m 700 -d /home/pi/.ssh'
+    echo "echo '$PUBKEY' >> /home/pi/.ssh/authorized_keys"
+    echo 'chown pi:pi /home/pi/.ssh/authorized_keys'
+    echo 'chmod 600 /home/pi/.ssh/authorized_keys'
+  fi
+  echo 'rm -f /boot/firstrun.sh'
+  echo "sed -i 's| systemd.run=[^ ]*||; s| systemd.run_success_action=[^ ]*||; s| systemd.unit=kernel-command-line.target||' /boot/cmdline.txt"
+  echo 'exit 0'
+} >/Volumes/bootfs/firstrun.sh
+chmod +x /Volumes/bootfs/firstrun.sh
 
-# Enable SSH
-touch /Volumes/bootfs/ssh
-
-# Write SSH public key to rootfs if available
-if [[ -n "$PUBKEY" ]]; then
-  SSH_DIR="/Volumes/rootfs/home/pi/.ssh"
-  mkdir -p "$SSH_DIR"
-  echo "$PUBKEY" > "$SSH_DIR/authorized_keys"
-  chmod 700 "$SSH_DIR"
-  chmod 600 "$SSH_DIR/authorized_keys"
-  echo "SSH key written to rootfs."
+CMDLINE_FILE="/Volumes/bootfs/cmdline.txt"
+if [[ -f "$CMDLINE_FILE" ]] && ! grep -q "firstrun.sh" "$CMDLINE_FILE"; then
+  CMDLINE=$(cat "$CMDLINE_FILE")
+  printf '%s systemd.run=/boot/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target\n' "$CMDLINE" >"$CMDLINE_FILE"
 fi
 
 # Eject
@@ -97,5 +119,11 @@ echo "Ejecting..."
 diskutil eject "/dev/$DISK"
 
 echo ""
-echo "Done. Insert the card, power on the Pi, then:"
+echo "Done. Insert the card and power on the Pi."
+echo "First boot runs setup then reboots itself — give it ~2 min, then:"
 echo "  ssh pi@raspberrypi.local"
+if [[ -n "$PUBKEY" ]]; then
+  echo ""
+  echo "To switch to key-based login, once you're in:"
+  echo "  ssh-copy-id -i $KEY_FILE pi@raspberrypi.local"
+fi
