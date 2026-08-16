@@ -39,3 +39,13 @@ ssh pi@raspberrypi.local
 ```
 
 Note: on this old hardware, first boot can take noticeably longer than on newer Pis — give it a few extra minutes before assuming something's wrong.
+
+## Join a node to the k3s cluster
+
+Run this **on the control plane** (it reads the join token locally, then reaches out over SSH to the Pi):
+
+```bash
+bash join-node.sh
+```
+
+Prompts for the Pi's SSH target, reads the local join token, enables the cgroup memory controller if needed (rebooting the Pi if it has to), disables swap, and installs `k3s` as an agent pointed at the control plane (`control.morrisons.site` by default, override with `CONTROL_HOST`).
