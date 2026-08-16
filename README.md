@@ -50,6 +50,8 @@ bash join-node.sh
 
 Prompts for the Pi's SSH target, reads the local join token, enables the cgroup memory controller if needed (rebooting the Pi if it has to), disables swap, and installs `k3s` as an agent pointed at the control plane (`control.morrisons.site` by default, override with `CONTROL_HOST`).
 
+The node is tainted `dedicated=pi:NoSchedule` by default (override with `NODE_TAINT`), so nothing schedules onto it unless a workload explicitly tolerates that taint. Safe to rerun against an already-joined Pi — it just rewrites the k3s-agent config (including the taint) and restarts the service, briefly flipping that node to `NotReady`.
+
 ## Label a node
 
 Run this against a Pi already joined to the cluster:

@@ -5,6 +5,9 @@
 set -euo pipefail
 
 CONTROL_HOST="${CONTROL_HOST:-control.morrisons.site}"
+# Pi nodes don't run anything by default; workloads opt in with a matching
+# toleration (and usually a nodeSelector) in their own deployment manifest.
+NODE_TAINT="${NODE_TAINT:-dedicated=pi:NoSchedule}"
 
 read -rp "Pi SSH target (e.g. pi@192.168.68.101 or pi@nodename.local): " PI_SSH
 
@@ -16,6 +19,7 @@ fi
 echo ""
 echo "Control plane: $CONTROL_HOST (local)"
 echo "Target node:   $PI_SSH"
+echo "Node taint:    $NODE_TAINT"
 read -rp "Continue? [y/N] " CONFIRM
 if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
   echo "Aborted."
@@ -72,8 +76,8 @@ ssh -t "$PI_SSH" '
   sudo swapoff -a || true
 '
 
-echo "Installing k3s agent on $PI_SSH..."
-ssh -t "$PI_SSH" "curl -sfL https://get.k3s.io | K3S_URL=https://${CONTROL_HOST}:6443 K3S_TOKEN=${TOKEN} sh -"
+echo "Installing k3s agent on $PI_SSH (taint: $NODE_TAINT)..."
+ssh -t "$PI_SSH" "curl -sfL https://get.k3s.io | K3S_URL=https://${CONTROL_HOST}:6443 K3S_TOKEN=${TOKEN} sh -s - --node-taint=${NODE_TAINT}"
 
 echo ""
 echo "Done. Verify with:"
