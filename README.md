@@ -49,3 +49,19 @@ bash join-node.sh
 ```
 
 Prompts for the Pi's SSH target, reads the local join token, enables the cgroup memory controller if needed (rebooting the Pi if it has to), disables swap, and installs `k3s` as an agent pointed at the control plane (`control.morrisons.site` by default, override with `CONTROL_HOST`).
+
+## Label a node
+
+Run this against a Pi already joined to the cluster:
+
+```bash
+bash label-node.sh
+```
+
+Prompts for the Pi's SSH target, then SSHes in to set a `node-label` in `/etc/rancher/k3s/config.yaml` and restarts `k3s-agent` so it takes effect. Defaults to `hardware=serial-hdmi` (for the Pi wired into serial hardware), override with `LABEL`.
+
+Verify from the control plane with:
+
+```bash
+kubectl get nodes --show-labels
+```
