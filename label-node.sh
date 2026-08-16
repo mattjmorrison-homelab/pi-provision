@@ -24,7 +24,8 @@ fi
 
 echo ""
 echo "Applying label on $PI_SSH..."
-ssh -t "$PI_SSH" "sudo LABEL='${LABEL}' bash -s" <<'EOF'
+
+REMOTE_SCRIPT=$(cat <<'EOF'
 set -euo pipefail
 CONFIG=/etc/rancher/k3s/config.yaml
 
@@ -46,6 +47,12 @@ fi
 
 systemctl restart k3s-agent
 EOF
+)
+
+# Passed as an argument (not via ssh's stdin) so stdin stays a real tty and
+# sudo can prompt for a password when the Pi has no NOPASSWD sudoers rule.
+ENCODED_SCRIPT=$(printf '%s' "$REMOTE_SCRIPT" | base64 | tr -d '\n')
+ssh -t "$PI_SSH" "echo '${ENCODED_SCRIPT}' | base64 -d | sudo LABEL='${LABEL}' bash -s"
 
 echo ""
 echo "Done. Verify from the control plane with:"
