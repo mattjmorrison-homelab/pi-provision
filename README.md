@@ -4,10 +4,31 @@ Tooling for provisioning a Raspberry Pi 5 headless over direct Ethernet from mac
 
 ## Fleet
 
-- Raspberry Pi 5 (8GB)
-- Raspberry Pi 5 (16GB)
-- Raspberry Pi Zero 2 W
-- Raspberry Pi 1 Model B Rev 2 (512MB)
+| Hostname  | Model                              |
+| --------- | ----------------------------------- |
+| `pi5-16`  | Raspberry Pi 5 (16GB)               |
+| `pi5-8`   | Raspberry Pi 5 (8GB)                |
+| `pizero`  | Raspberry Pi Zero 2 W               |
+| `pi1`     | Raspberry Pi 1 Model B Rev 2 (512MB) |
+
+Each is reachable at `<hostname>.local` over SSH (e.g. `ssh pi@pi5-16.local`)
+once its hostname has been set post-flash — see below.
+
+### Setting a unique hostname (post-flash)
+
+Both flash scripts leave the default hostname `raspberrypi`, which collides
+across multiple devices on the same network. After flashing, bring boards up
+**one at a time**, SSH in while `raspberrypi.local` is still unambiguous, and
+rename:
+
+```bash
+ssh pi@raspberrypi.local
+sudo hostnamectl set-hostname <name>   # e.g. pi5-16, pi5-8, pizero, pi1
+sudo reboot
+```
+
+Once renamed, that Pi is reachable at `<name>.local` and the next board can
+be powered on and claim `raspberrypi.local` in turn.
 
 ## Flash a microSD card
 
@@ -31,7 +52,7 @@ bash flash-pi-legacy.sh
 - Raspberry Pi OS Lite (32-bit) — Trixie (the 32-bit build supports all Raspberry Pi models, including ARMv6 boards)
 - An SSH public key at `~/.ssh/id_ed25519.pub` or `~/.ssh/id_rsa.pub`
 
-Both scripts prompt for the image path, disk identifier, and a password, then write the image and configure a first-boot `firstrun.sh` for SSH access (including installing your public key).
+Both scripts expect the image at a hardcoded path under `~/Downloads` (see the `IMAGE_PATH` line near the top of each script — update the filename there if you download a newer release). They prompt for the disk identifier and a password, then write the image and configure a first-boot `firstrun.sh` for SSH access (including installing your public key).
 
 **After flashing:**
 ```bash
