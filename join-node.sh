@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Joins a Pi already flashed via flash-pi.sh / flash-pi-legacy.sh to the homelab
 # k3s cluster as an agent node. Run this ON the control plane (it reads the join
-# token locally) — it only reaches out over SSH to the target Pi.
+# token locally) -- it only reaches out over SSH to the target Pi. Or run it
+# non-interactively from CI: set PI_SSH, SSH_KEY_FILE, and K3S_JOIN_TOKEN (CI
+# fetches the token from OpenBao instead of reading it off the control plane's
+# disk, since the runner isn't the control plane).
 set -euo pipefail
 
 CONTROL_HOST="${CONTROL_HOST:-control.morrisons.site}"
@@ -9,37 +12,48 @@ CONTROL_HOST="${CONTROL_HOST:-control.morrisons.site}"
 # toleration (and usually a nodeSelector) in their own deployment manifest.
 NODE_TAINT="${NODE_TAINT:-dedicated=pi:NoSchedule}"
 
-read -rp "Pi SSH target (e.g. pi@192.168.68.101 or pi@nodename.local): " PI_SSH
+if [[ -z "${PI_SSH:-}" ]]; then
+  read -rp "Pi SSH target (e.g. pi@nodename.local): " PI_SSH
 
-if [[ -z "$PI_SSH" ]]; then
-  echo "No target given."
-  exit 1
+  if [[ -z "$PI_SSH" ]]; then
+    echo "No target given."
+    exit 1
+  fi
+
+  echo ""
+  echo "Control plane: $CONTROL_HOST (local)"
+  echo "Target node:   $PI_SSH"
+  echo "Node taint:    $NODE_TAINT"
+  read -rp "Continue? [y/N] " CONFIRM
+  if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+    echo "Aborted."
+    exit 1
+  fi
 fi
 
-echo ""
-echo "Control plane: $CONTROL_HOST (local)"
-echo "Target node:   $PI_SSH"
-echo "Node taint:    $NODE_TAINT"
-read -rp "Continue? [y/N] " CONFIRM
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-  echo "Aborted."
-  exit 1
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
+if [[ -n "${SSH_KEY_FILE:-}" ]]; then
+  SSH_OPTS+=(-i "$SSH_KEY_FILE")
 fi
 
-echo ""
-echo "Reading local join token..."
-TOKEN=$(sudo cat /var/lib/rancher/k3s/server/node-token)
-if [[ -z "$TOKEN" ]]; then
-  echo "Failed to read node token — is k3s running on this machine?"
-  exit 1
+if [[ -n "${K3S_JOIN_TOKEN:-}" ]]; then
+  TOKEN="$K3S_JOIN_TOKEN"
+else
+  echo ""
+  echo "Reading local join token..."
+  TOKEN=$(sudo cat /var/lib/rancher/k3s/server/node-token)
+  if [[ -z "$TOKEN" ]]; then
+    echo "Failed to read node token -- is k3s running on this machine?"
+    exit 1
+  fi
 fi
 
 echo "Checking cgroup memory support on $PI_SSH..."
-CGROUP_OK=$(ssh "$PI_SSH" "grep -qw memory /sys/fs/cgroup/cgroup.controllers 2>/dev/null && echo yes || echo no")
+CGROUP_OK=$(ssh "${SSH_OPTS[@]}" "$PI_SSH" "grep -qw memory /sys/fs/cgroup/cgroup.controllers 2>/dev/null && echo yes || echo no")
 
 if [[ "$CGROUP_OK" == "no" ]]; then
-  echo "cgroup memory controller is off — enabling it and rebooting $PI_SSH..."
-  ssh -t "$PI_SSH" '
+  echo "cgroup memory controller is off -- enabling it and rebooting $PI_SSH..."
+  ssh -t "${SSH_OPTS[@]}" "$PI_SSH" '
     set -e
     CMDLINE_FILE=/boot/firmware/cmdline.txt
     [[ -f "$CMDLINE_FILE" ]] || CMDLINE_FILE=/boot/cmdline.txt
@@ -47,7 +61,7 @@ if [[ "$CGROUP_OK" == "no" ]]; then
       sudo sed -i "s/\$/ cgroup_memory=1 cgroup_enable=memory/" "$CMDLINE_FILE"
     fi
   '
-  ssh -t "$PI_SSH" "sudo reboot" || true
+  ssh -t "${SSH_OPTS[@]}" "$PI_SSH" "sudo reboot" || true
 
   PI_HOST="${PI_SSH#*@}"
   echo "Waiting for $PI_HOST to go down..."
@@ -64,12 +78,12 @@ if [[ "$CGROUP_OK" == "no" ]]; then
       exit 1
     fi
   done
-  echo "Back up — giving sshd a few seconds to start..."
+  echo "Back up -- giving sshd a few seconds to start..."
   sleep 10
 fi
 
 echo "Disabling swap on $PI_SSH..."
-ssh -t "$PI_SSH" '
+ssh -t "${SSH_OPTS[@]}" "$PI_SSH" '
   if systemctl is-enabled dphys-swapfile >/dev/null 2>&1; then
     sudo systemctl disable --now dphys-swapfile
   fi
@@ -77,7 +91,7 @@ ssh -t "$PI_SSH" '
 '
 
 echo "Installing k3s agent on $PI_SSH (taint: $NODE_TAINT)..."
-ssh -t "$PI_SSH" "curl -sfL https://get.k3s.io | K3S_URL=https://${CONTROL_HOST}:6443 K3S_TOKEN=${TOKEN} sh -s - --node-taint=${NODE_TAINT}"
+ssh -t "${SSH_OPTS[@]}" "$PI_SSH" "curl -sfL https://get.k3s.io | K3S_URL=https://${CONTROL_HOST}:6443 K3S_TOKEN=${TOKEN} sh -s - --node-taint=${NODE_TAINT}"
 
 echo ""
 echo "Done. Verify with:"

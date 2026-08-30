@@ -1,0 +1,52 @@
+# Single source of truth for this repo's CI: which Pis exist, and which
+# script runs against which target on what cadence.
+#
+# trigger values:
+#   sync      - runs automatically on every merge to main (.github/workflows/sync.yml)
+#   scheduled - runs on the cron below (.github/workflows/scheduled.yml)
+#   adhoc     - only runs via workflow_dispatch (.github/workflows/adhoc.yml)
+#
+# Each Pi's SSH private key lives in OpenBao at
+# homelab/pi/<name>/private-key, read by the pi-provision-deploy role.
+
+pis:
+  pi1:
+    ssh_host: pi@pi1.local
+    role: standalone
+  pizero:
+    ssh_host: pi@pizero.local
+    role: standalone
+  pi5-8:
+    ssh_host: pi@pi5-8.local
+    role: cluster
+  pi5-16:
+    ssh_host: pi@pi5-16.local
+    role: cluster
+
+tasks:
+  - script: install-node-exporter.sh
+    trigger: sync
+    targets: [pi1, pizero]
+
+  - script: check-updates.sh
+    trigger: scheduled
+    schedule: "0 12 * * *"
+    targets: [pi1, pizero, pi5-8, pi5-16]
+
+  - script: apply-updates.sh
+    trigger: adhoc
+    targets: [pi1, pizero, pi5-8, pi5-16]
+
+  - script: label-node.sh
+    trigger: adhoc
+    targets: [pi5-8]
+    env:
+      LABEL: "hardware=serial-hdmi"
+
+  - script: join-node.sh
+    trigger: adhoc
+    targets: []   # no preset target -- dispatch picks any name under `pis:`
+
+  - script: taint-existing-nodes.sh
+    trigger: adhoc
+    targets: []   # cluster-wide; adhoc.yml requires target be left blank

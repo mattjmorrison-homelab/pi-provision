@@ -1,0 +1,5 @@
+self-hosted-runner:
+  labels:
+    - k8s-amd64
+    - k8s-arm64
+    - k8s-pi-provision

@@ -4,7 +4,6 @@
 set -euo pipefail
 
 DOWNLOADS="$HOME/Downloads"
-BOOKWORM="2026-06-18-raspios-bookworm-arm64-lite.img.xz"
 TRIXIE="2026-06-18-raspios-trixie-arm64-lite.img.xz"
 
 # Prompt for image path

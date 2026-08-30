@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Shared ssh mock for all bats tests. Records every invocation, and answers
+# the specific remote one-liners individual scripts check the output of.
+echo "ssh $*" >> "${CAPTURE_DIR:?}/ssh.calls"
+
+case "$*" in
+  *"grep -qw memory /sys/fs/cgroup/cgroup.controllers"*)
+    echo "${CGROUP_STATE:-yes}"
+    ;;
+  *"systemctl is-enabled dphys-swapfile"*)
+    ;;
+  *)
+    ;;
+esac
+
+cat >>"${CAPTURE_DIR:?}/ssh.stdin" 2>/dev/null || true
