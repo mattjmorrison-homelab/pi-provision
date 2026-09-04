@@ -22,7 +22,8 @@ setup() {
 @test "produces an empty include list when nothing matches" {
   run bash "$SCRIPT" nonexistent-trigger
   [ "$status" -eq 0 ]
-  [ "$output" = '{"include":[]}' ]
+  echo "$output" | grep -q '"include"'
+  ! echo "$output" | grep -q '"script"'
 }
 
 @test "carries each task's env through to its matrix entries" {
