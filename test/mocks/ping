@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "ping $*" >> "${CAPTURE_DIR:?}/ping.calls"
+exit "${PING_EXIT:-0}"

@@ -1,0 +1,54 @@
+name: Scheduled
+
+# Runs every task in fleet.yaml marked `trigger: scheduled` against its
+# declared targets. GitHub Actions can't read a cron expression out of a
+# repo file for the trigger itself, so this cron must be kept in sync by
+# hand with whatever `schedule:` fleet.yaml's scheduled tasks declare
+# (currently: noon daily, for check-updates.sh).
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  discover:
+    runs-on: k8s-pi-provision
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
+
+      - id: build-matrix
+        run: echo "matrix=$(./build-matrix.sh scheduled)" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: discover
+    if: needs.discover.outputs.matrix != '{"include":[]}'
+    runs-on: k8s-pi-provision
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
+
+      - name: Fetch ${{ matrix.target }}'s deploy key from OpenBao
+        env:
+          VAULT_ADDR: http://k8s-openbao.openbao.svc:8200
+        run: |
+          set -euo pipefail
+          ./fetch-openbao-secret.sh pi-provision-deploy "homelab/pi/${{ matrix.target }}/private-key" > "$RUNNER_TEMP/deploy-key"
+          chmod 600 "$RUNNER_TEMP/deploy-key"
+          echo "SSH_KEY_FILE=$RUNNER_TEMP/deploy-key" >> "$GITHUB_ENV"
+
+      - name: Resolve ${{ matrix.target }}'s SSH host and task env
+        run: |
+          set -euo pipefail
+          echo "PI_SSH=$(./pi-ssh-host.sh '${{ matrix.target }}')" >> "$GITHUB_ENV"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<'${{ toJson(matrix.env) }}' >> "$GITHUB_ENV"
+
+      - name: Run ${{ matrix.script }} against ${{ matrix.target }}
+        run: ./${{ matrix.script }}

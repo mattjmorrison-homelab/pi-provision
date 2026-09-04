@@ -1,18 +1,15 @@
-# homelab-raspberrypi
+# pi-provision
 
-Tooling for provisioning a Raspberry Pi 5 headless over direct Ethernet from macOS.
+Tooling for provisioning and managing Raspberry Pis in the homelab cluster — flashing microSD cards, joining k3s nodes, and orchestrating updates via GitHub Actions.
 
 ## Fleet
 
-| Hostname  | Model                              |
-| --------- | ----------------------------------- |
-| `pi5-16`  | Raspberry Pi 5 (16GB)               |
-| `pi5-8`   | Raspberry Pi 5 (8GB)                |
-| `pizero`  | Raspberry Pi Zero 2 W               |
-| `pi1`     | Raspberry Pi 1 Model B Rev 2 (512MB) |
+- **pi5-16**: Raspberry Pi 5 (16GB) — k3s cluster member
+- **pi5-8**: Raspberry Pi 5 (8GB) — k3s cluster member
+- **pizero**: Raspberry Pi Zero 2 W — standalone
+- **pi1**: Raspberry Pi 1 Model B Rev 2 (512MB) — standalone
 
-Each is reachable at `<hostname>.local` over SSH (e.g. `ssh pi@pi5-16.local`)
-once its hostname has been set post-flash — see below.
+Each is reachable at `<hostname>.local` over SSH (e.g. `ssh pi@pi5-16.local`) once its hostname has been set post-flash. See `fleet.yaml` for the authoritative SSH targets and operation schedule.
 
 ### Setting a unique hostname (post-flash)
 
@@ -29,6 +26,52 @@ sudo reboot
 
 Once renamed, that Pi is reachable at `<name>.local` and the next board can
 be powered on and claim `raspberrypi.local` in turn.
+
+## Fleet management via GitHub Actions
+
+All non-interactive, scheduled, and one-off Pi operations run through GitHub Actions workflows that read `fleet.yaml` to discover targets, authenticate to OpenBao to fetch SSH keys, and run the appropriate script against each Pi.
+
+Three workflows handle different triggers:
+
+### Sync workflow (`sync.yml`)
+
+Runs on every merge to `main`. Executes all tasks marked `trigger: sync` against their declared targets. Currently: `install-node-exporter.sh` on `pi1` and `pizero`.
+
+All scripts invoked here are idempotent, so rerunning unrelated ones on an unrelated change is harmless.
+
+### Scheduled workflow (`scheduled.yml`)
+
+Runs on a cron schedule. Currently: `check-updates.sh` daily at noon UTC against all Pis. The cron expression is hardcoded in the workflow (GitHub Actions limitation) and must be kept in sync with the `schedule:` declared in `fleet.yaml`.
+
+### Adhoc workflow (`adhoc.yml`)
+
+Manually triggered via `workflow_dispatch` in GitHub. Choose a script and Pi name from the dropdown inputs. Supports:
+- `install-node-exporter.sh` — choose any Pi
+- `join-node.sh` — choose any Pi (leaves target blank to interactively onboard a new cluster member)
+- `label-node.sh` — currently presets to `pi5-8` for serial-HDMI labeling
+- `apply-updates.sh` — choose any Pi to manually trigger upgrades
+- `taint-existing-nodes.sh` — cluster-wide operation, leave target blank
+
+To add a new Pi: update `fleet.yaml` and `admin-openbao`'s SSH key store first, then dispatch against it here.
+
+## CI/automation mode
+
+All scripts support non-interactive mode when run from CI by setting environment variables instead of prompting:
+
+**Required for all scripts:**
+- `PI_SSH` — SSH target (e.g. `pi@pi5-8.local`)
+- `SSH_KEY_FILE` — path to SSH private key
+
+**Required for `join-node.sh` only:**
+- `K3S_JOIN_TOKEN` — k3s agent token (fetched from OpenBao in CI; the control plane operator would read it locally via `sudo cat /var/lib/rancher/k3s/server/node-token` instead)
+
+**Optional:**
+- `LABEL` — for `label-node.sh`, defaults to `hardware=serial-hdmi`
+- `PI_NAME` — for `check-updates.sh` and `apply-updates.sh`, defaults to the hostname from `$PI_SSH`
+
+The workflows authenticate to OpenBao using Kubernetes ServiceAccount tokens and the `pi-provision-deploy` role (pre-provisioned in `admin-openbao`) to fetch each Pi's SSH private key from `homelab/pi/<name>/private-key` and (for join operations) the shared k3s join token from `homelab/pi/k3s-join-token`.
+
+All scripts bootstrap a `/etc/sudoers.d/pi-provision` NOPASSWD entry on first run so later runs (interactive or CI) don't hit a sudo password prompt. This happens once inside the first `sudo bash -s` elevation and is idempotent.
 
 ## Flash a microSD card
 
@@ -88,3 +131,31 @@ Verify from the control plane with:
 ```bash
 kubectl get nodes --show-labels
 ```
+
+## Check for apt updates
+
+Run this to see which packages are upgradable on a Pi:
+
+```bash
+bash check-updates.sh
+```
+
+Prompts for the Pi's SSH target, then refreshes apt's package index and writes a Prometheus textfile metric (`node_apt_upgrades_pending`) so monitoring can alert when updates are available. This script never installs anything — it's notify-only.
+
+Runs automatically on a daily cron schedule against all Pis (see `fleet.yaml`'s `scheduled` trigger and the `Scheduled` workflow).
+
+**Requires:** The `/etc/sudoers.d/pi-provision` NOPASSWD entry. Run `install-node-exporter.sh` or `label-node.sh` against the Pi first if you haven't already.
+
+## Apply apt updates
+
+Run this to actually install pending apt upgrades on a Pi:
+
+```bash
+bash apply-updates.sh
+```
+
+Prompts for the Pi's SSH target and confirms the action (since this actually installs packages), then runs `apt-get upgrade -y` and refreshes the `node_apt_upgrades_pending` metric so the alert clears.
+
+Available via the `Adhoc` workflow for one-off manual deployments when you've decided it's a good time to upgrade a Pi.
+
+**Requires:** The `/etc/sudoers.d/pi-provision` NOPASSWD entry. Run `install-node-exporter.sh` or `label-node.sh` against the Pi first if you haven't already.

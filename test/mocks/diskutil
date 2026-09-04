@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Minimal stand-in for macOS's diskutil so flash-pi*.sh's safety gates (which
+# run before any real disk I/O) can be exercised on Linux. The actual
+# image-write/mount/firstrun.sh steps that follow the confirmation prompt
+# depend on a real /Volumes/bootfs mountpoint and are out of reach of PATH
+# mocking alone -- not covered here.
+echo "diskutil $*" >> "${CAPTURE_DIR:?}/diskutil.calls"

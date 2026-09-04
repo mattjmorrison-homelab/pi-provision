@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+echo "kubectl $*" >> "${CAPTURE_DIR:?}/kubectl.calls"
+
+case "$*" in
+  "get nodes -l "*)
+    printf '%s\n' "${MOCK_NODES-pi5-8 pi5-16}"
+    ;;
+esac

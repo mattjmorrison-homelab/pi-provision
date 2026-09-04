@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Only used by join-node.sh's local (non-CI) token-read path, sudo cat.
+echo "sudo $*" >> "${CAPTURE_DIR:?}/sudo.calls"
+
+case "$*" in
+  "cat /var/lib/rancher/k3s/server/node-token")
+    echo "${MOCK_JOIN_TOKEN:-localtoken123}"
+    ;;
+esac
