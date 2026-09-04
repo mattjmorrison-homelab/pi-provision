@@ -1,0 +1,23 @@
+pis:
+  pi1:
+    ssh_host: pi@pi1.local
+    role: standalone
+  pizero:
+    ssh_host: pi@pizero.local
+    role: standalone
+
+tasks:
+  - script: install-node-exporter.sh
+    trigger: sync
+    targets: [pi1, pizero]
+
+  - script: check-updates.sh
+    trigger: scheduled
+    schedule: "0 12 * * *"
+    targets: [pi1]
+
+  - script: label-node.sh
+    trigger: adhoc
+    targets: [pi1]
+    env:
+      LABEL: "hardware=serial-hdmi"

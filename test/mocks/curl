@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Shared curl mock for OpenBao-fetching bats tests. Records every
+# invocation, and answers the two OpenBao endpoints fetch-openbao-secret.sh
+# calls: the Kubernetes-auth login, and the KV read. Override
+# CURL_LOGIN_TOKEN/CURL_KV_VALUE per-test to simulate failures.
+echo "curl $*" >> "${CAPTURE_DIR:?}/curl.calls"
+
+case "$*" in
+  *"/v1/auth/kubernetes/login"*)
+    echo "{\"auth\":{\"client_token\":\"${CURL_LOGIN_TOKEN-test-client-token}\"}}"
+    ;;
+  *"/v1/kv/data/"*)
+    echo "{\"data\":{\"data\":{\"value\":\"${CURL_KV_VALUE-test-secret-value}\"}}}"
+    ;;
+  *)
+    echo "unexpected curl call: $*" >&2
+    exit 1
+    ;;
+esac

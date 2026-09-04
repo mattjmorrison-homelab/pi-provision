@@ -34,30 +34,7 @@ jobs:
       - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
 
       - id: resolve
-        run: |
-          set -euo pipefail
-          SCRIPT="${{ inputs.script }}"
-          TARGET="${{ inputs.target }}"
-
-          if [[ "$SCRIPT" == "taint-existing-nodes.sh" ]]; then
-            if [[ -n "$TARGET" ]]; then
-              echo "taint-existing-nodes.sh is cluster-wide -- leave target blank." >&2
-              exit 1
-            fi
-            exit 0
-          fi
-
-          if [[ -z "$TARGET" ]]; then
-            echo "target is required for $SCRIPT" >&2
-            exit 1
-          fi
-
-          HOST="$(yq -r ".pis.\"${TARGET}\".ssh_host // \"\"" fleet.yaml)"
-          if [[ -z "$HOST" ]]; then
-            echo "'$TARGET' isn't a known pi in fleet.yaml -- add it there (and to admin-openbao) first." >&2
-            exit 1
-          fi
-          echo "ssh_host=$HOST" >> "$GITHUB_OUTPUT"
+        run: echo "ssh_host=$(./resolve-adhoc-target.sh '${{ inputs.script }}' '${{ inputs.target }}')" >> "$GITHUB_OUTPUT"
 
   run:
     needs: validate
@@ -73,19 +50,7 @@ jobs:
           VAULT_ADDR: http://k8s-openbao.openbao.svc:8200
         run: |
           set -euo pipefail
-          JWT="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
-          LOGIN_PAYLOAD="$(jq -n --arg jwt "$JWT" --arg role pi-provision-deploy '{jwt: $jwt, role: $role}')"
-          CLIENT_TOKEN="$(curl -sf -X POST "$VAULT_ADDR/v1/auth/kubernetes/login" -d "$LOGIN_PAYLOAD" | jq -r '.auth.client_token')"
-          if [[ -z "$CLIENT_TOKEN" || "$CLIENT_TOKEN" == "null" ]]; then
-            echo "Vault login for role pi-provision-deploy failed to return a client token" >&2
-            exit 1
-          fi
-          curl -sf -H "X-Vault-Token: $CLIENT_TOKEN" "$VAULT_ADDR/v1/kv/data/homelab/pi/${{ inputs.target }}/private-key" \
-            | jq -r '.data.data.value' > "$RUNNER_TEMP/deploy-key"
-          if [[ ! -s "$RUNNER_TEMP/deploy-key" ]] || grep -qx "null" "$RUNNER_TEMP/deploy-key"; then
-            echo "Failed to fetch private key for ${{ inputs.target }} from OpenBao" >&2
-            exit 1
-          fi
+          ./fetch-openbao-secret.sh pi-provision-deploy "homelab/pi/${{ inputs.target }}/private-key" > "$RUNNER_TEMP/deploy-key"
           chmod 600 "$RUNNER_TEMP/deploy-key"
           echo "SSH_KEY_FILE=$RUNNER_TEMP/deploy-key" >> "$GITHUB_ENV"
 
@@ -95,14 +60,7 @@ jobs:
           VAULT_ADDR: http://k8s-openbao.openbao.svc:8200
         run: |
           set -euo pipefail
-          JWT="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
-          LOGIN_PAYLOAD="$(jq -n --arg jwt "$JWT" --arg role pi-provision-deploy '{jwt: $jwt, role: $role}')"
-          CLIENT_TOKEN="$(curl -sf -X POST "$VAULT_ADDR/v1/auth/kubernetes/login" -d "$LOGIN_PAYLOAD" | jq -r '.auth.client_token')"
-          TOKEN="$(curl -sf -H "X-Vault-Token: $CLIENT_TOKEN" "$VAULT_ADDR/v1/kv/data/homelab/pi/k3s-join-token" | jq -r '.data.data.value')"
-          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
-            echo "Failed to fetch k3s-join-token from OpenBao" >&2
-            exit 1
-          fi
+          TOKEN="$(./fetch-openbao-secret.sh pi-provision-deploy homelab/pi/k3s-join-token)"
           echo "::add-mask::$TOKEN"
           echo "K3S_JOIN_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
