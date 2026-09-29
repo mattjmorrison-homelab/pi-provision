@@ -30,7 +30,7 @@ fi
 
 echo ""
 echo "Installing node_exporter on $PI_SSH..."
-ssh -t "$PI_SSH" "sudo VERSION='${VERSION}' bash -s" <<'EOF'
+ssh "$PI_SSH" "cat > /tmp/install-node-exporter.sh" <<'EOF'
 set -euo pipefail
 
 if systemctl is-active --quiet node_exporter 2>/dev/null; then
@@ -98,6 +98,8 @@ systemctl restart node_exporter
 
 echo "node_exporter installed and running on :9100."
 EOF
+
+ssh -t "$PI_SSH" "sudo VERSION='${VERSION}' bash /tmp/install-node-exporter.sh; rm -f /tmp/install-node-exporter.sh"
 
 echo ""
 echo "Done. Verify with:"
