@@ -13,7 +13,7 @@ jobs:
       - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
 
       - name: shellcheck
-        run: shellcheck ./*.sh
+        run: shellcheck ./*.sh scripts/*.sh fleet/*/provision.sh
 
       - name: actionlint
         run: actionlint

@@ -1,25 +1,24 @@
 name: Adhoc
 
-# Manually-triggered fleet operations -- joining/labeling a node, retainting
-# the cluster, or applying pending updates. `target` must be a key under
-# `pis:` in fleet.yaml (to onboard a brand-new Pi, add it to fleet.yaml and
-# admin-openbao's locals.tf first, then dispatch against it here) -- leave
-# it blank for taint-existing-nodes, which is cluster-wide.
+# Manually-triggered fleet operations -- provisioning a Pi (runs its
+# fleet/<name>/provision.sh), applying pending updates, or retainting the
+# cluster. `target` must be a name under `fleet/` (to onboard a brand-new
+# Pi, add it there, to admin-openbao's locals.tf, and to pi-fleet's
+# fleet.yaml first, then dispatch against it here) -- leave it blank for
+# taint-existing-nodes.sh, which is cluster-wide.
 on:
   workflow_dispatch:
     inputs:
-      script:
-        description: Script to run
+      action:
+        description: Action to run
         required: true
         type: choice
         options:
-          - install-node-exporter.sh
-          - join-node.sh
-          - label-node.sh
+          - provision
           - apply-updates.sh
           - taint-existing-nodes.sh
       target:
-        description: "fleet.yaml pi name (leave blank for taint-existing-nodes.sh)"
+        description: "fleet/ pi name (leave blank for taint-existing-nodes.sh)"
         required: false
         type: string
 
@@ -27,35 +26,70 @@ jobs:
   validate:
     runs-on: k8s-pi-provision
     outputs:
-      ssh_host: ${{ steps.resolve.outputs.ssh_host }}
+      ssh-host: ${{ steps.resolve.outputs.ssh-host }}
+      ssh-user: ${{ steps.resolve.outputs.ssh-user }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
 
+      - name: Validate action/target combination
+        run: |
+          set -euo pipefail
+          ACTION="${{ inputs.action }}"
+          TARGET="${{ inputs.target }}"
+
+          if [[ "$ACTION" == "taint-existing-nodes.sh" ]]; then
+            if [[ -n "$TARGET" ]]; then
+              echo "taint-existing-nodes.sh is cluster-wide -- leave target blank." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [[ -z "$TARGET" ]]; then
+            echo "target is required for $ACTION" >&2
+            exit 1
+          fi
+
+          if [[ "$ACTION" == "provision" && ! -d "fleet/$TARGET" ]]; then
+            echo "'$TARGET' isn't a known pi under fleet/ -- add it there first." >&2
+            exit 1
+          fi
+
       - id: resolve
-        run: echo "ssh_host=$(./resolve-adhoc-target.sh '${{ inputs.script }}' '${{ inputs.target }}')" >> "$GITHUB_OUTPUT"
+        if: inputs.target != ''
+        uses: mattjmorrison-homelab/pi-fleet/resolve-target@bbd71d9857547942c0925565fdd7399f74f1fd02 # main
+        with:
+          name: ${{ inputs.target }}
 
   run:
     needs: validate
     runs-on: k8s-pi-provision
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
 
-      - name: Fetch deploy key from OpenBao
+      - name: Sign SSH key for ${{ inputs.target }}
         if: inputs.target != ''
-        env:
-          VAULT_ADDR: http://k8s-openbao.openbao.svc:8200
+        uses: mattjmorrison-homelab/actions-openbao/sign-ssh@563fc93755fa627ec1ee71ae7fd1bf5ac5bb308e # main
+        with:
+          role: pi-fleet
+          auth-role: pi-provision-oidc
+          key-file: ${{ runner.temp }}/pi-provision-deploy-key
+
+      - name: Set PI_SSH and SSH_KEY_FILE
+        if: inputs.target != ''
         run: |
-          set -euo pipefail
-          ./fetch-openbao-secret.sh pi-provision-deploy "homelab/pi/${{ inputs.target }}/private-key" > "$RUNNER_TEMP/deploy-key"
-          chmod 600 "$RUNNER_TEMP/deploy-key"
-          echo "SSH_KEY_FILE=$RUNNER_TEMP/deploy-key" >> "$GITHUB_ENV"
+          echo "SSH_KEY_FILE=${{ runner.temp }}/pi-provision-deploy-key" >> "$GITHUB_ENV"
+          echo "PI_SSH=${{ needs.validate.outputs.ssh-user }}@${{ needs.validate.outputs.ssh-host }}" >> "$GITHUB_ENV"
 
       - name: Fetch k3s join token from OpenBao
-        if: inputs.script == 'join-node.sh'
+        if: inputs.action == 'provision'
         env:
           VAULT_ADDR: http://k8s-openbao.openbao.svc:8200
         run: |
@@ -64,7 +98,10 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "K3S_JOIN_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Run ${{ inputs.script }}
-        env:
-          PI_SSH: ${{ needs.validate.outputs.ssh_host }}
-        run: ./${{ inputs.script }}
+      - name: Provision ${{ inputs.target }}
+        if: inputs.action == 'provision'
+        run: ./fleet/${{ inputs.target }}/provision.sh
+
+      - name: Run ${{ inputs.action }}
+        if: inputs.action != 'provision'
+        run: ./scripts/${{ inputs.action }}
