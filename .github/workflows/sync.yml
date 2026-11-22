@@ -1,8 +1,8 @@
 name: Sync
 
-# Runs every task in fleet.yaml marked `trigger: sync` against its declared
-# targets, on every push to main. All of these scripts are idempotent, so
-# re-running unrelated ones on an unrelated change is harmless.
+# Provisions every Pi under fleet/ on every push to main. All of these
+# scripts are idempotent, so re-running a Pi's provision.sh on an
+# unrelated change is harmless.
 on:
   push:
     branches: [main]
@@ -18,12 +18,15 @@ jobs:
       - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
 
       - id: build-matrix
-        run: echo "matrix=$(./build-matrix.sh sync)" >> "$GITHUB_OUTPUT"
+        run: echo "matrix=$(./build-matrix.sh)" >> "$GITHUB_OUTPUT"
 
   run:
     needs: discover
     if: needs.discover.outputs.matrix != '{"include":[]}'
     runs-on: k8s-pi-provision
+    permissions:
+      id-token: write
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
@@ -32,20 +35,31 @@ jobs:
 
       - uses: mattjmorrison-homelab/actions-bash@08b4f8486d603001eaa42e1da223ddd91a9e3af2 # main
 
-      - name: Fetch ${{ matrix.target }}'s deploy key from OpenBao
+      - name: Sign SSH key for ${{ matrix.target }}
+        uses: mattjmorrison-homelab/actions-openbao/sign-ssh@563fc93755fa627ec1ee71ae7fd1bf5ac5bb308e # main
+        with:
+          role: pi-fleet
+          auth-role: pi-provision-oidc
+          key-file: ${{ runner.temp }}/pi-provision-deploy-key
+
+      - id: resolve
+        uses: mattjmorrison-homelab/pi-fleet/resolve-target@bbd71d9857547942c0925565fdd7399f74f1fd02 # main
+        with:
+          name: ${{ matrix.target }}
+
+      - name: Set PI_SSH and SSH_KEY_FILE
+        run: |
+          echo "SSH_KEY_FILE=${{ runner.temp }}/pi-provision-deploy-key" >> "$GITHUB_ENV"
+          echo "PI_SSH=${{ steps.resolve.outputs.ssh-user }}@${{ steps.resolve.outputs.ssh-host }}" >> "$GITHUB_ENV"
+
+      - name: Fetch k3s join token from OpenBao
         env:
           VAULT_ADDR: http://k8s-openbao.openbao.svc:8200
         run: |
           set -euo pipefail
-          ./fetch-openbao-secret.sh pi-provision-deploy "homelab/pi/${{ matrix.target }}/private-key" > "$RUNNER_TEMP/deploy-key"
-          chmod 600 "$RUNNER_TEMP/deploy-key"
-          echo "SSH_KEY_FILE=$RUNNER_TEMP/deploy-key" >> "$GITHUB_ENV"
+          TOKEN="$(./fetch-openbao-secret.sh pi-provision-deploy homelab/pi/k3s-join-token)"
+          echo "::add-mask::$TOKEN"
+          echo "K3S_JOIN_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Resolve ${{ matrix.target }}'s SSH host and task env
-        run: |
-          set -euo pipefail
-          echo "PI_SSH=$(./pi-ssh-host.sh '${{ matrix.target }}')" >> "$GITHUB_ENV"
-          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<'${{ toJson(matrix.env) }}' >> "$GITHUB_ENV"
-
-      - name: Run ${{ matrix.script }} against ${{ matrix.target }}
-        run: ./${{ matrix.script }}
+      - name: Provision ${{ matrix.target }}
+        run: ./fleet/${{ matrix.target }}/provision.sh

@@ -3,7 +3,7 @@
 setup() {
   export PATH="$BATS_TEST_DIRNAME/mocks:$PATH"
   export CAPTURE_DIR="$BATS_TEST_TMPDIR"
-  SCRIPT="$BATS_TEST_DIRNAME/../taint-existing-nodes.sh"
+  SCRIPT="$BATS_TEST_DIRNAME/../scripts/taint-existing-nodes.sh"
   unset NODE_TAINT KUBECONFIG MOCK_NODES
 }
 

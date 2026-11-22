@@ -3,7 +3,7 @@
 setup() {
   export PATH="$BATS_TEST_DIRNAME/mocks:$PATH"
   export CAPTURE_DIR="$BATS_TEST_TMPDIR"
-  SCRIPT="$BATS_TEST_DIRNAME/../join-node.sh"
+  SCRIPT="$BATS_TEST_DIRNAME/../scripts/join-node.sh"
   unset PI_SSH SSH_KEY_FILE K3S_JOIN_TOKEN CONTROL_HOST NODE_TAINT CGROUP_STATE
   export CGROUP_STATE="yes"
 }

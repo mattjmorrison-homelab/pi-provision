@@ -3,7 +3,7 @@
 setup() {
   export PATH="$BATS_TEST_DIRNAME/mocks:$PATH"
   export CAPTURE_DIR="$BATS_TEST_TMPDIR"
-  SCRIPT="$BATS_TEST_DIRNAME/../install-node-exporter.sh"
+  SCRIPT="$BATS_TEST_DIRNAME/../scripts/install-node-exporter.sh"
   unset PI_SSH SSH_KEY_FILE VERSION
 }
 
