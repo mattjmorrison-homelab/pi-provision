@@ -3,7 +3,7 @@
 setup() {
   export PATH="$BATS_TEST_DIRNAME/mocks:$PATH"
   export CAPTURE_DIR="$BATS_TEST_TMPDIR"
-  SCRIPT="$BATS_TEST_DIRNAME/../apply-updates.sh"
+  SCRIPT="$BATS_TEST_DIRNAME/../scripts/apply-updates.sh"
   unset PI_SSH SSH_KEY_FILE PI_NAME
 }
 

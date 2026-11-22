@@ -3,7 +3,7 @@
 setup() {
   export PATH="$BATS_TEST_DIRNAME/mocks:$PATH"
   export CAPTURE_DIR="$BATS_TEST_TMPDIR"
-  SCRIPT="$BATS_TEST_DIRNAME/../label-node.sh"
+  SCRIPT="$BATS_TEST_DIRNAME/../scripts/label-node.sh"
   unset PI_SSH SSH_KEY_FILE LABEL
 }
 
